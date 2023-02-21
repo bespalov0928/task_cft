@@ -8,7 +8,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
 
         String ext = "text";
         String dir = "C:\\projects\\task_cft\\src\\main\\resources\\";
@@ -21,9 +21,10 @@ public class Main {
         fileDelete(dir, ext);
         readeFile(in2, countStr, ext, dir, listTempPath);
         readeFile(in1, countStr, ext, dir, listTempPath);
-        List<String> listTempPathNew = sortedFile(dir, ext, listTempPath);
-        fileDelete(listTempPath);
-        mergeFile(listTempPathNew, out);
+        sortedFile(dir, ext, listTempPath);
+//        mergeFile(listTempPath, out);
+        mergeFileNew(listTempPath, out);
+        fileDelete(dir, ext);
 
     }
 
@@ -55,7 +56,7 @@ public class Main {
     }
 
     //читаем временные файлы и сортируем их
-    private static List<String> sortedFile(String dir, String ext, List<String> listTempPath) {
+    private static void sortedFile(String dir, String ext, List<String> listTempPath) {
         List<String> listTempPathNew = new ArrayList<>();
         for (String fileName : listTempPath) {
             String line = "";
@@ -72,20 +73,19 @@ public class Main {
             int[] listIntOrder = mergeSort(listInt);
             listString = Arrays.stream(listIntOrder).mapToObj(int_ -> String.valueOf(int_)).collect(Collectors.toList());
 
-            try {
-                File fileNew = File.createTempFile(ext, ".temp", new File(dir));
-                listTempPathNew.add(fileNew.getAbsolutePath());
-                writerFile(listString, fileNew);
-            } catch (IOException e) {
+            try (BufferedWriter bw = new BufferedWriter(new FileWriter(fileName))) {
+                bw.flush();
+                for (String str : listString) {
+                    bw.write(str);
+                    bw.newLine();
+                }
+            } catch (Exception e) {
                 e.printStackTrace();
             }
-
-
         }
-        return listTempPathNew;
     }
 
-    //объединение файлов слиянием
+    //объединение файлов слиянием неправильно
     private static void mergeFile(List<String> listTempPath, String outPath) {
         //обработка
         //считаем первые два слоя строк из буферов в массив
@@ -94,8 +94,9 @@ public class Main {
         //считаем следующий слой строк и повторим тоже самое
 
         List<String> listStr = new ArrayList<>();
+        List<FileReader> listReader = listReader(listTempPath);
+        List<BufferedReader> listBuf = listBuf(listReader);
         List<BufferedReader> listBufDel = new ArrayList<>();
-        List<BufferedReader> listBuf = listBuf(listTempPath);
 
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(outPath))) {
             bw.flush();
@@ -142,6 +143,80 @@ public class Main {
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        for (FileReader fr : listReader) {
+            try {
+                fr.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    //объединение файлов слиянием правильно
+    private static void mergeFileNew(List<String> listTempPath, String outPath) throws IOException {
+
+        List<FileReader> listReader = listReader(listTempPath);
+        List<BufferedReader> listBuf = listBuf(listReader);
+        List<String> listStrFinish = new ArrayList<>();
+        Map<BufferedReader, String> mapReader = new HashMap<>();
+        int countBuf = listBuf.size();
+
+        for (BufferedReader br : listBuf) {
+            String line = br.readLine();
+            mapReader.put(br, line);
+        }
+        String minStr = null;
+        BufferedReader minBr = null;
+
+        var mapEntry = mapReader.entrySet();
+
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter(outPath))) {
+            while (countBuf > 0) {
+                minStr = null;
+                minBr = null;
+                for (Map.Entry<BufferedReader, String> br : mapEntry) {
+                    if (br.getValue() == null) {
+                        continue;
+                    }
+
+                    String line = br.getValue();
+                    if (minStr == null || (Integer.valueOf(line) < Integer.valueOf(minStr))) {
+                        minStr = line;
+                        minBr = br.getKey();
+                    }
+                }
+                listStrFinish.add(minStr);
+                bw.write(minStr);
+                bw.newLine();
+                for (Map.Entry<BufferedReader, String> br : mapEntry) {
+                    if (br.getKey().equals(minBr)) {
+                        br.setValue(minBr.readLine());
+                        minStr = br.getValue();
+                        if (minStr == null) countBuf--;
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        for (FileReader fr : listReader) {
+            try {
+                fr.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        for (BufferedReader br : listBuf) {
+            try {
+                br.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
     }
 
     //удалить файлы
@@ -159,16 +234,6 @@ public class Main {
 
     }
 
-    private static void fileDelete(List<String> listTempPath) {
-        for (String path : listTempPath) {
-            try {
-                Files.delete(Path.of(path));
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
     //запись в файл
     private static void writerFile(List<String> arr, File file) {
         try (BufferedWriter bw = new BufferedWriter(new FileWriter(file))) {
@@ -181,12 +246,26 @@ public class Main {
         }
     }
 
-    //получить массив буферов
-    private static List<BufferedReader> listBuf(List<String> listPath) {
-        List<BufferedReader> list = new ArrayList<>();
+    //получим массив ридеров
+    private static List<FileReader> listReader(List<String> listPath) {
+        List<FileReader> readerList = new ArrayList<>();
         for (String str : listPath) {
             try {
-                BufferedReader br = new BufferedReader(new FileReader(str));
+                FileReader fr = new FileReader(str);
+                readerList.add(fr);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        return readerList;
+    }
+
+    //получить массив буферов
+    private static List<BufferedReader> listBuf(List<FileReader> listPath) {
+        List<BufferedReader> list = new ArrayList<>();
+        for (FileReader fr : listPath) {
+            try {
+                BufferedReader br = new BufferedReader(fr);
                 list.add(br);
             } catch (Exception e) {
                 e.printStackTrace();
